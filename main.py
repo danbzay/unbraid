@@ -8,35 +8,47 @@ from pipeline import StreamPipeline
 
 def main():
     ctx = get_project_context()
+
     import ast_flow
-    from exporter import SQLiteStore
-    import ast_flow
-    from pipeline import UnitedStreamSystem
-    # ... (код получения контекста ctx) ...
-    import ast_flow
-    from pipeline import UnitedStreamSystem
+    from pipeline import StreamPipeline
     from exporter import ConsoleExporter
 
-    # 1. Создаем большую систему
-    system = UnitedStreamSystem()
-    # Запоминаем корень проекта в глобальной памяти системы
-    system.system_meta["project_root"] = ctx["project_root"]
+    target_file = ctx["target_file"]
+    main_module = target_file.stem
 
-    # 2. Регистрируем ОДИН единственный главный файл проекта на старте!
-    main_module = ctx["target_file"].stem
-    raw_nodes = ast_flow.load(ctx["target_file"])
-    system.register_stream_from_nodes(main_module, raw_nodes)
+    # 1. Загружаем главный файл
+    raw_nodes = ast_flow.load(target_file)
 
-    # 3. АКТИВАЦИЯ КООРДИНАТНОЙ СИСТЕМЫ: Она сама лениво найдет 
-    # и подселит все импортируемые модули в момент наступания на ImportFrom!
-    final_flow = system.coordinate_route(ast_flow.AstCoordinateRouter())
+    # 2. Инициализируем StreamPipeline
+    pipeline = StreamPipeline(
+        raw_nodes,
+        id_fn=ast_flow.ast_id_factory(main_module),
+        meta_fn=ast_flow.ast_meta_factory(),
+        body_fn=ast_flow.ast_body_extractor(),
+        pipeline_meta={
+            "project_root": ctx["project_root"],
+            "target_file": target_file
+        }
+    )
 
-    # 4. Прогоняем через трекер областей видимости и выводим в консоль
+    # 3. Разворачиваем импорты
+    integrated_pipeline = pipeline.flat_map(ast_flow.ModuleLoader())
+
+    # 4. Материализуем для прыжков
+    ready_pipeline = integrated_pipeline.materialize()
+
+    # 5. Хронология + Области видимости
+    final_flow = (
+        ready_pipeline
+        .route(ast_flow.AstRouter())
+        .map(ast_flow.FlowScopeTracker())
+    )
+
     def identity_formatter(unit):
         return unit
 
-    final_flow.map(ast_flow.FlowScopeTracker()).save(
-        ConsoleExporter(title="МНОГОМОДУЛЬНЫЙ КООРДИНАТНЫЙ СРЕЗ"),
+    final_flow.save(
+        ConsoleExporter(title="БАЗОВАЯ СТАБИЛЬНАЯ ВЕРСИЯ"),
         formatter_func=identity_formatter
     )
 
