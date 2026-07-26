@@ -1,0 +1,8 @@
+{
+    "entry_point": "tests/main_test.py",
+    "target_files": [
+        "tests/main_test.py",
+        "tests/data_processor.py"
+    ]
+}
+

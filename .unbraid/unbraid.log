@@ -1,0 +1,6 @@
+2026-07-16 13:14:18,486 [INFO] main.py: Корень исследуемого проекта: /home/danil/unbraid
+2026-07-16 13:14:18,486 [INFO] main.py: Создан дефолтный конфиг: .unbraid/config.json
+2026-07-16 13:14:18,486 [INFO] main.py: Целевой файл для анализа: /home/danil/unbraid/tests/main_test.py
+2026-07-16 13:14:18,486 [INFO] main.py: Файл успешно распарсен в AST
+2026-07-16 13:14:18,486 [INFO] main.py: Запущена стратегия плоского дерева (Flat Tree)
+2026-07-16 13:14:18,487 [INFO] main.py: Результаты сохранены: .unbraid/cache/result.json

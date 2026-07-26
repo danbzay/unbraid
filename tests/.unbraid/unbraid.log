@@ -1,0 +1,9 @@
+2026-07-16 12:27:57,836 [INFO] main.py: Старт анализа для файла: main_test.py
+2026-07-16 12:27:57,836 [INFO] main.py: Создан дефолтный конфиг: .unbraid/config.json
+2026-07-16 12:27:57,873 [INFO] main.py: Файл успешно прочитан и распарсен в AST
+2026-07-16 12:27:57,873 [INFO] main.py: Запущена стратегия плоского дерева (Flat Tree)
+2026-07-16 12:27:57,873 [INFO] main.py: Анализ завершен. Результаты: .unbraid/cache/result.json
+2026-07-16 12:36:04,310 [INFO] main.py: Корень исследуемого проекта: /home/danil/unbraid/tests
+2026-07-16 12:36:04,310 [INFO] main.py: Загружен существующий конфигурационный файл
+2026-07-16 12:36:04,310 [INFO] main.py: Целевой файл для анализа: /home/danil/unbraid/tests/tests/main_test.py
+2026-07-16 12:36:04,310 [ERROR] main.py: Файл для анализа не найден: /home/danil/unbraid/tests/tests/main_test.py

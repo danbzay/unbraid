@@ -1,0 +1,5 @@
+{
+    "strategy": "flat",
+    "entry_point": "tests/main_test.py",
+    "skip_if_blocks": true
+}

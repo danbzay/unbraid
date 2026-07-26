@@ -1,0 +1,48 @@
+import json
+from pathlib import Path
+import ast
+from cli import parse_args
+from config import get_project_context
+from pipeline import StreamPipeline
+
+
+def main():
+    ctx = get_project_context()
+    import ast_flow
+    from exporter import SQLiteStore
+    import ast_flow
+    from pipeline import UnitedStreamSystem
+
+    # 1. Создаем большую объединенную систему
+    system = UnitedStreamSystem()
+    db_path = ctx["output_dir"] / "data_flow.db"
+
+    # 2. Самостоятельно и изолированно загружаем модули как независимые стримы
+    # (Они живут на дефолтных итераторах, ничего не зная друг о друге)
+    system.register_stream("main_test", ast_flow.load(ctx["target_file"]))
+    system.register_stream("data_processor", ast_flow.load(ctx["project_root"] / "data_processor.py"))
+
+    # 3. ПЕРЕЗАПИСЬ ИТЕРАТОРА: Запускаем координатную route-систему!
+    # Наш AstRouter теперь работает с двумерной сеткой (модуль, id)
+    final_flow = system.coordinate_route(ast_flow.AstCoordinateRouter())
+
+    # 4. Прогоняем через трекер областей видимости и сохраняем в базу!
+    final_flow.map(ast_flow.FlowScopeTracker()).save(...)
+
+
+    # 5. Настраиваем форматер для базы данных SQLite
+    def project_steps_formatter(unit):
+        return {
+            "body": unit.body,
+            "meta": unit.meta,
+        }
+
+    # Сбрасываем итоговую хронологию в базу данных
+    final_flow.save(
+        SQLiteStore(db_path, table_name="project_steps"),
+        formatter_func=project_steps_formatter
+    )
+
+if __name__ == "__main__":
+    main()
+
