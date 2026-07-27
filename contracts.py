@@ -10,7 +10,6 @@ class FlowUnit:
     """
 
     id: Any  # Уникальный идентификатор (число, кортеж или строка)
-    is_active: bool = True
     meta: dict = field(default_factory=dict)
     body: Any = None  # Полезная нагрузка (узел AST или любая другая сущность)
 

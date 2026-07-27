@@ -1,33 +1,23 @@
-import ast
-
-
 class ConsoleExporter:
-    """Выводит хронологический поток атомов с их короткими связями."""
+    """Глупый отладочный логгер: просто печатает сырые данные как есть."""
 
-    def __init__(self, title="ХРОНОЛОГИЯ АТОМОВ И СВЯЗЕЙ"):
+    def __init__(self, title="СЫРОЙ СРЕЗ ДАННЫХ"):
         self.title = title
 
-    def export(self, units):
-        if not units:
-            print(f"\n[{self.title}] Поток пуст.")
+    def export(self, rows):
+        """Просто выводит элементы в принт для визуального анализа."""
+        if not rows:
+            print(f"\n[{self.title}] Список пуст.")
             return
 
-        print("\n" + "=" * 75 + f"\n[{self.title}]\n" + "=" * 75)
+        print("\n" + "=" * 60 + f"\n[{self.title}]\n" + "=" * 60)
         
-        for u in units:
-            code_line = ast.unparse(u.body) if u.body else "None"
-            
-            clean_code = " ".join(code_line.split())
-            if len(clean_code) > 35:
-                clean_code = clean_code[:32] + "..."
+        for pos, row in enumerate(rows):
+            # Честно выводим сырой принт объекта, переданного из main.py
+            print(f"[{pos}] {repr(row)}")
+            print("-" * 60)
 
-            # Выводим Короткий ID, Массив связей и Код
-            print(
-                f"IDX: {u.meta['idx']:<4} | "
-                f"Preds: {str(u.meta['preds']):<8} | "
-                f"Type: {u.meta['op_type']:<18} | "
-                f"Code: {clean_code}"
-            )
+
 import sqlite3
 
 

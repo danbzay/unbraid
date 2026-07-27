@@ -1,25 +1,27 @@
 import ast
-import builtins
 from pathlib import Path
-from contracts import FlowUnit, FlowExpander, FlowMapper
 
-# --- ВНУТРЕННИЕ ФАБРИКИ ПОЛЕЙ ---
+
 def ast_id_factory(module_name: str):
-    # raw_pair[1] — это словарь meta, забираем его idx
+    # raw_pair — это кортеж (node, meta), берем meta под индексом 1 и читаем idx
     return lambda raw_pair: f"{module_name}.{raw_pair[1]['idx']}"
 
+
 def ast_meta_factory():
-    # Возвращаем meta (индекс 1)
+    # Извлекаем и возвращаем чистый словарь meta (индекс 1)
     return lambda raw_pair: raw_pair[1]
 
+
 def ast_body_extractor():
-    # Возвращаем узел AST (индекс 0)
+    # Извлекаем и возвращаем чистый сырой узел AST (индекс 0) -> упадет в body!
     return lambda raw_pair: raw_pair[0]
 
-def load(file_path):
-    """Деструктурирует файл и возвращает готовый список кортежей."""
+
+def load(file_path, project_root=None):
+    """Деструктурирует файл и сразу возвращает готовый объект StreamPipeline."""
     path_obj = Path(file_path).resolve()
-    module_name = path_obj.get_module_name if hasattr(path_obj, "get_module_name") else path_obj.stem
+    module_name = path_obj.stem
+    root_path = Path(project_root) if project_root else path_obj.parent
 
     with open(path_obj, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read())
@@ -46,6 +48,7 @@ def load(file_path):
             "preds": list(parent_stack),
             "op_type": type(node).__name__,
         }
+        # Упаковываем строго в кортеж (узел, мета)
         raw_items.append((node, meta))
 
         new_stack = parent_stack + [current_idx]
@@ -53,84 +56,33 @@ def load(file_path):
             dfs_walk(child, parent_stack=new_stack)
 
     dfs_walk(tree)
-    return raw_items
 
-
-class ModuleLoader(FlowExpander):
-    """Рекурсивно разворачивает модули, вытаскивая корень из памяти потока."""
-
-    def expand(self, unit: FlowUnit, id_generator, pipeline) -> list[FlowUnit]:
-        if unit.meta.get("op_type") != "ImportFrom":
-            return []
-
-        module_name = unit.body.module
-        project_root = Path(pipeline.pipeline_meta["project_root"])
-        potential_file = project_root / f"{module_name}.py"
-
-        if potential_file.exists():
-            from pipeline import StreamPipeline
-            raw_pairs = load(potential_file)
-            
-            ext_pipeline = StreamPipeline(
-                raw_pairs,
-                id_fn=ast_id_factory(module_name),
-                meta_fn=ast_meta_factory(),
-                body_fn=ast_body_extractor(),
-                pipeline_meta=pipeline.pipeline_meta
-            )
-
-            imported_units = []
-            for local_unit in ext_pipeline:
-                local_unit.id = id_generator()
-                imported_units.append(local_unit)
-            return imported_units
-        return []
+    from pipeline import StreamPipeline
+    return StreamPipeline(
+        raw_items,
+        id_fn=ast_id_factory(module_name),
+        meta_fn=ast_meta_factory(),
+        body_fn=ast_body_extractor(),
+        ctx={"project_root": root_path, "target_file": path_obj}
+    )
 
 
 class AstRouter:
-    """Линейный путеводитель: шагает по реальному списку ключей."""
+    """Абсолютно ленивый линейный роутер верхнего уровня."""
 
     def __init__(self):
-        self.functions_map = {}
-        self.ordered_ids = []
-        self.initialized = False
+        pass
 
-    def initialize(self, pipeline):
-        if self.initialized:
-            return
-        registry = pipeline.pipeline_meta.get("registry_map", {})
-        self.ordered_ids = list(registry.keys())
-        
-        for uid, u in registry.items():
-            if u.meta.get("op_type") in ["FunctionDef", "AsyncFunctionDef"]:
-                func_name = u.body.name
-                try:
-                    pos = self.ordered_ids.index(uid)
-                    if pos + 1 < len(self.ordered_ids):
-                        self.functions_map[func_name] = self.ordered_ids[pos + 1]
-                except ValueError:
-                    pass
-        self.initialized = True
-
-    def get_next_id(self, unit: FlowUnit) -> Any:
+    def calculate_next_unit(self, unit, pipeline):
+        ordered_units = pipeline.units
         try:
-            pos = self.ordered_ids.index(unit.id)
-            if pos + 1 < len(self.ordered_ids):
-                return self.ordered_ids[pos + 1]
-        except ValueError:
+            current_pos = ordered_units.index(pipeline.registry_map[unit.id])
+            if current_pos + 1 < len(ordered_units):
+                return ordered_units[current_pos + 1]
+        except (ValueError, KeyError):
             pass
         return None
-
-    def get_jump_id(self, unit: FlowUnit) -> Any:
-        if unit.meta.get("op_type") == "Call" and isinstance(unit.body.func, ast.Name):
-            func_name = unit.body.func.id
-            if func_name not in ["print", "asyncio", "sleep"]:
-                return self.functions_map.get(func_name)
-        return None
-
-    def is_return(self, unit: FlowUnit) -> bool:
-        return unit.meta.get("op_type") == "Return"
-
+from contracts import FlowMapper
 
 class FlowScopeTracker(FlowMapper):
     """Отслеживает области видимости по правилам модулей Python."""
