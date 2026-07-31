@@ -1,5 +1,9 @@
 import ast
-from pathlib import Path
+from pathlib import Path 
+
+import logging
+logger = logging.getLogger("unbraid")
+
 
 
 def ast_id_factory(module_name: str):
@@ -66,22 +70,71 @@ def load(file_path, project_root=None):
         ctx={"project_root": root_path, "target_file": path_obj}
     )
 
+import ast
+from pathlib import Path
+
 
 class AstRouter:
-    """Абсолютно ленивый линейный роутер верхнего уровня."""
+    """Абсолютно ленивый роутер: линкует и переезжает в модули на лету [Example 4]."""
 
-    def __init__(self):
-        pass
+    def get_next_unit(self, pipeline) -> Any:
+        """Реактивно выдает"""
 
-    def calculate_next_unit(self, unit, pipeline):
-        ordered_units = pipeline.units
-        try:
-            current_pos = ordered_units.index(pipeline.registry_map[unit.id])
-            if current_pos + 1 < len(ordered_units):
-                return ordered_units[current_pos + 1]
-        except (ValueError, KeyError):
-            pass
-        return None
+        if pipeline.index >= len(pipeline.units):
+            return None
+
+        unit = pipeline.units[pipeline.index]
+        logger.info(f"[AST_FLOW]: {unit=}")
+        logger.info(f"[AST_FLOW]: {pipeline.ctx=}")
+
+        for trigger in pipeline.ctx["triggers"].values():
+            trigger()
+                
+
+        pipeline.index += 1
+
+        op = unit.meta.get("op_type")
+
+        if op == "ImportFrom":
+            module_name = unit.body.module
+            
+            project_root = Path(pipeline.ctx.get("project_root", "."))
+            potential_file = project_root / f"{module_name}.py"
+
+            if potential_file.exists():
+                logger.info(f"[IMPORT]: {module_name}")
+                
+                module_pipeline = load(
+                    potential_file, project_root=project_root
+                ).route(AstRouter())
+
+                module_units = module_pipeline.units
+                
+                if module_units:
+                    def reroute_trigger():
+                        return next(module_pipeline)
+                    
+                    pipeline.ctx["triggers"]["reroute"] = reroute_trigger
+
+                    def endroute_trigger():
+                        if module_pipeline.index >= len(module_units) - 1:
+                            module_pipeline.ctx["triggers"].pop("endroute")
+                            pipeline.ctx["triggers"].pop("reroute")
+
+                    module_pipeline.ctx["triggers"][
+                        "endroute"
+                    ] = endroute_trigger
+
+                    logger.info(f"[IMPORT]: {pipeline.ctx=}")
+                    logger.info(f"[IMPORT]: {module_pipeline.ctx=}")
+                    return unit
+            else:
+                print(f"-> [ОШИБКА]: Модуль {module_name}.py не найден по пути {potential_file}")
+
+        return unit
+
+
+
 from contracts import FlowMapper
 
 class FlowScopeTracker(FlowMapper):
