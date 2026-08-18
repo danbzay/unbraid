@@ -1,0 +1,99 @@
+----- assigns
+"Module(body=[
+  Assign(targets=[
+    Subscript(
+      value=Name(id='x', ctx=Load()), 
+      slice=Name(id='i', ctx=Load()), 
+      ctx=Store())], 
+  value=
+    Subscript(
+      value=Name(id='y', ctx=Load()), 
+      slice=Name(id='j', ctx=Load()), 
+      ctx=Load()))
+])
+"Module(body=[
+  Assign(targets=[
+    Attribute(
+      value=Name(id='x', ctx=Load()), 
+      attr='i', ctx=Store()
+  )], 
+  value=
+    Attribute(
+      value=Name(id='y', ctx=Load()), 
+      attr='j', 
+      ctx=Load())
+  )
+])"
+"Module(body=[Assign(
+  targets=[
+    Name(id='x', ctx=Store())
+  ], 
+  value=
+    Name(id='y', ctx=Load())
+)])"
+"Module(body=[Assign(
+  targets=[
+    Tuple(elts=[Name(id='x', ctx=Store()), Name(id='y', ctx=Store())], ctx=Store())], 
+  value=
+    Tuple(elts=[Name(id='a', ctx=Load()), Name(id='b', ctx=Load())], ctx=Load()))])"
+"Module(body=[AugAssign(
+  target=Name(id='x', ctx=Store()), op=Add(), 
+  value=Name(id='a', ctx=Load()))])"
+
+>>> ast.dump(ast.parse("[x1,[x2,x3]] = y1.append(f(y2,y3))"))
+"Module(body=[Assign(
+  targets=[
+    List(
+      elts=[Name(id='x1', ctx=Store()), List(elts=[Name(id='x2', ctx=Store()), Name(id='x3', ctx=Store())], ctx=Store())], 
+      ctx=Store())], 
+  value=
+    Call(
+      func=Attribute(value=Name(id='y1', ctx=Load()), attr='append', ctx=Load()), 
+      args=[Call(func=Name(id='f', ctx=Load()), args=[Name(id='y2', ctx=Load()), Name(id='y3', ctx=Load())])]
+))])"
+>>> list(ast.walk(a))
+0[
+1  Module(body=[Assign(targets=[List(elts=[Name(...), List(...)], ctx=Store(...))], value=Call(func=Attribute(...), args=[Call(...)], keywords=[]), type_comment=None)], type_ignores=[]), 
+2    Assign(targets=[List(elts=[Name(id='x1', ctx=Store(...)), List(elts=[Name(...), Name(...)], ctx=Store(...))], ctx=Store())], value=Call(func=Attribute(value=Name(...), attr='append', ctx=Load(...)), args=[Call(func=Name(...), args=[Name(...), Name(...)], keywords=[])], keywords=[]), type_comment=None), 
+3      List(elts=[Name(id='x1', ctx=Store()), List(elts=[Name(id='x2', ctx=Store(...)), Name(id='x3', ctx=Store(...))], ctx=Store())], ctx=Store()), 
+3      Call(func=Attribute(value=Name(id='y1', ctx=Load(...)), attr='append', ctx=Load()), args=[Call(func=Name(id='f', ctx=Load(...)), args=[Name(id='y2', ctx=Load(...)), Name(id='y3', ctx=Load(...))], keywords=[])], keywords=[]), 
+4        Name(id='x1', ctx=Store()), 
+         List(elts=[Name(id='x2', ctx=Store()), Name(id='x3', ctx=Store())], ctx=Store()), 
+         Store(), 
+         Attribute(value=Name(id='y1', ctx=Load()), attr='append', ctx=Load()), 
+         Call(func=Name(id='f', ctx=Load()), args=[Name(id='y2', ctx=Load()), Name(id='y3', ctx=Load())], keywords=[]), 
+         Store(), 
+           Name(id='x2', ctx=Store()), Name(id='x3', ctx=Store()), Store(), Name(id='y1', ctx=Load()), Load(), Name(id='f', ctx=Load()), Name(id='y2', ctx=Load()), Name(id='y3', ctx=Load()), Store(), Store(), Load(), Load(), Load(), Load()]
+----- calls
+"Module(body=[Expr(value=Call(
+  func=Lambda(
+    args=arguments(args=[arg(arg='x')]), 
+    body=BinOp(left=Name(id='x', ctx=Load()), op=Add(), right=Constant(value=1))), 
+  args=[Constant(value=5)]
+))])"
+"Module(body=[Expr(value=Call(
+  func=IfExp(
+    test=Name(id='condition', ctx=Load()), 
+    body=Name(id='func_a', ctx=Load()), 
+    orelse=Name(id='func_b', ctx=Load())
+)))])"
+"Module(body=[Expr(value=Call(
+  func=Subscript(
+    value=Name(id='actions', ctx=Load()), 
+    slice=Constant(value='save'), 
+    ctx=Load()
+)))])"
+>>> code = """
+... def f(a,b,c):
+...     return a, b+c
+... y1, y2 = f(x1, x2, x3)
+... """
+>>> ast.dump(ast.parse(code))
+"Module(body=[
+  FunctionDef(
+    name='f', 
+    args=arguments(args=[arg(arg='a'), arg(arg='b'), arg(arg='c')]), 
+    body=[Return(value=Tuple(elts=[Name(id='a', ctx=Load()), BinOp(left=Name(id='b', ctx=Load()), op=Add(), right=Name(id='c', ctx=Load()))], ctx=Load()))]), 
+  Assign(
+    targets=[Tuple(elts=[Name(id='y1', ctx=Store()), Name(id='y2', ctx=Store())], ctx=Store())], 
+    value=Call(func=Name(id='f', ctx=Load()), args=[Name(id='x1', ctx=Load()), Name(id='x2', ctx=Load()), Name(id='x3', ctx=Load())]))])"

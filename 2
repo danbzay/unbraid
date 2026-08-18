@@ -1,0 +1,423 @@
+import logging
+logger = logging.getLogger(f"unbraid.{__name__}")
+
+import ast
+from pathlib import Path
+from pipeline import StreamPipeline, DerivedUnit
+
+def parse_module(module_name, project_root=None, __main__=False):
+    """
+    Парсит модуль по его имени. Находит файл внутри project_root,
+    строит граф AST и возвращает настроенный StreamPipeline.
+    """
+    root_path = (
+        Path(project_root).resolve() if project_root else Path(".").resolve()
+    )
+    
+    relative_path = module_name.replace(".", "/") + ".py"
+    file_path = root_path / relative_path
+    
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Не удалось найти модуль {module_name} по пути {file_path}"
+        )
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+
+    derived_tuple = ()
+    atom_counter = 0
+    if __main__ == True: 
+        module_name = "__main__"
+
+    def dfs_walk(node, parent_stack=[0], scope_stack=None):
+        nonlocal atom_counter
+
+        if isinstance(node, ast.Module):
+            for child in ast.iter_child_nodes(node):
+                yield from dfs_walk(child, parent_stack=[0])
+            return
+
+        current_idx = atom_counter
+        atom_counter += 1
+        meta = {
+            "module": module_name,
+            "idx": current_idx,
+            "preds": list(parent_stack),
+        }
+        
+        unit = DerivedUnit(body=node, meta=meta)
+        unit.id = current_idx 
+
+        yield unit
+
+        new_stack = parent_stack.copy()
+        new_stack.append(current_idx)
+
+        for child in ast.iter_child_nodes(node):
+            yield from dfs_walk( child, parent_stack=new_stack)
+
+    return StreamPipeline(
+        dfs_walk(tree),
+        project_root=root_path,
+        module_name=module_name,
+        symbol_table={}
+    )
+
+
+import ast
+import copy
+from pipeline import StreamPipeline
+
+def extract_assigned_names(target_node):
+    """
+    Рекурсивно извлекает только плоские имена переменных (ast.Name)
+    из левой части присваивания, игнорируя свойства через точку (ast.Attribute).
+    """
+    import ast
+    names = []
+    if isinstance(target_node, ast.Name):
+        names.append((target_node.id, None))
+    elif (
+        isinstance(target_node, ast.Attribute) and 
+        isinstance(target_node.value, ast.Name)
+    ):
+        names.append((target_node.attr, target_node.value.id))
+    elif isinstance(target_node, (ast.Tuple, ast.List)):
+        for elt in target_node.elts:
+            names.extend(extract_assigned_names(elt))
+    return names
+
+def create_scope_context(creator_pipeline, **overrides):
+    """
+    Универсальная фабрика пространств.
+    Создает и настраивает новый StreamPipeline для любого типа скоупа.
+    """
+    new_scope = StreamPipeline().merge_context_from(
+        creator_pipeline,
+        symbol_table={},
+        **overrides
+    )
+    new_scope.parent_scope = creator_pipeline
+
+    return new_scope
+
+def resolve_scopes(current_stream, pipeline):
+    """
+    Вырезает тела функций в отдельные StreamPipeline 
+    и линкует их в symbol_table.
+    """
+    logger = logging.getLogger(f"unbraid.{__name__}.resolve_scopes")
+    if not hasattr(pipeline, "active_scopes"):
+        pipeline.active_scopes = {0: pipeline}
+    if not hasattr(pipeline, "symbol_table"):
+        pipeline.symbol_table = {}
+    if not hasattr(pipeline, "modules_cache"):
+        pipeline.modules_cache = {}
+        pipeline.modules_cache[pipeline.module_name] = pipeline
+
+    for attr in ["parent_scope", "active_scopes", "modules_cache"]:
+        if attr not in pipeline._shallow_attributes:
+            pipeline._shallow_attributes.append(attr)
+            
+    if "symbol_table" not in pipeline._infra_attributes:
+        pipeline._infra_attributes.append("symbol_table")
+
+    for item in current_stream:
+        preds = item.meta.get("preds", [])
+        current_scope = pipeline
+        for pred_id in reversed(preds):
+            if pred_id in pipeline.active_scopes:
+                current_scope = pipeline.active_scopes[pred_id]
+                break
+        scope_type = None
+        logger.debug(
+            f"[RESOLVE SCOPES]: {item.meta["idx"]}: {str(item.body):.49}\n"
+            f"{pipeline=}\n{preds=}\n{current_scope=}\n"
+            f"active_scopes: {list(pipeline.active_scopes.keys())}\n"
+        )
+
+        # new scope (class, function, async function) ----------------------
+        if isinstance(item.body, ast.ClassDef):
+            scope_type = "class"
+        if isinstance(item.body, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scope_type = "local"
+
+        if scope_type:
+            if item.meta.get("scope_resolved"):
+                logger.debug(
+                    f"[RESOLVE SCOPES]: Скоуп {item.body.name} уже обработан"
+                )
+                yield item
+                continue
+
+            scope_name = item.body.name
+            node_idx = item.meta["idx"]
+
+            scope_pipeline = StreamPipeline().merge_context_from(
+                pipeline,
+                parent_scope=pipeline, 
+                scope_type=scope_type, 
+                scope_name=scope_name,
+                symbol_table = {}
+            )
+
+            current_scope.symbol_table[scope_name] = {
+                "type": scope_type,
+                "node_idx": node_idx,
+                "body_pipeline": scope_pipeline  
+            }
+            pipeline.active_scopes[node_idx] = scope_pipeline
+            item.meta["scope_resolved"] = True
+            
+            key = f"divert_{scope_name}_{node_idx}"
+            pipeline.divert_to(
+                scope_pipeline,
+                is_group_member=lambda x: (
+                    x.meta.get("idx") == node_idx 
+                    or node_idx in x.meta.get("preds", [])
+                ),
+                key=key,
+                priority=len(item.meta.get("preds", []))
+            )
+            yield item
+            continue
+
+        # assign -----------------------------------------------------
+        if isinstance(item.body, ast.Assign):
+            assign_node = item.body
+            
+            assigned_pairs = []
+            for target in assign_node.targets:
+                assigned_pairs.extend(extract_assigned_names(target))
+                
+            right_value = assign_node.value
+            
+            for name, obj_name in assigned_pairs:
+
+                # self 
+                if obj_name == "self":
+                    class_scope = None
+                    for pred_id in reversed(preds):
+                        if pred_id in pipeline.active_scopes:
+                            potential_class = pipeline.active_scopes[pred_id]
+                            if getattr(
+                                potential_class, "scope_type", None
+                            ) == "class":
+                                class_scope = potential_class
+                                break
+                    
+                    target_scope = (
+                        class_scope if class_scope is not None 
+                        else current_scope
+                    )
+                    if "instance_attributes" not in target_scope.symbol_table:
+                        target_scope.symbol_table["instance_attributes"] = {}
+                    target_scope.symbol_table["instance_attributes"][name] = {
+                        "type": "object_property",
+                        "node_idx": item.meta["idx"]
+                    }
+                    
+                else:
+                    # function alias
+                    orig_info = None
+                    search_scope = current_scope
+                    while search_scope is not None:
+                        if (
+                            isinstance(right_value, ast.Name) and 
+                            right_value.id in search_scope.symbol_table
+                        ):
+                            orig_info = (
+                                search_scope.symbol_table[right_value.id]
+                            )
+                            break
+                        search_scope = getattr(
+                            search_scope, "parent_scope", None
+                        )
+
+                    if (
+                        orig_info and orig_info["type"] in (
+                            "function", "method", "imported_name", 
+                            "function_alias"
+                    )):
+                        current_scope.symbol_table[name] = {
+                            "type": "function_alias",
+                            "node_idx": item.meta["idx"],
+                            "body_pipeline": orig_info.get("body_pipeline")
+                        }
+
+                    # lambda
+                    elif isinstance(right_value, ast.Lambda):
+                        current_scope.symbol_table[name] = {
+                            "type": "lambda_function",
+                            "node_idx": item.meta["idx"]
+                        }
+                    # variable
+                    else:
+                        current_scope.symbol_table[name] = {
+                            "type": "variable",
+                            "node_idx": item.meta["idx"]
+                        }
+                    
+        # imports ------------------------------------------------------
+        if isinstance(item.body, (ast.Import, ast.ImportFrom)):
+
+            import_node = item.body
+            module_names = []
+            if isinstance(import_node, ast.ImportFrom):
+                if import_node.module:
+                    module_names.append(import_node.module)
+            else:
+                module_names.extend(
+                    alias.name for alias in import_node.names
+                )
+
+            # resolve new modules
+            for module_name in module_names:
+                if module_name not in pipeline.modules_cache:
+                    import_file_path = (
+                        pipeline.project_root / f"{module_name}.py"
+                    )
+                    if import_file_path.exists():
+                        logger.info(
+                            f"[RESOLVE_SCOPES]: import:{import_file_path}"
+                        )
+                        imported_sp = parse_module(
+                            module_name, 
+                            project_root=pipeline.project_root,
+                        )
+                        pipeline.modules_cache[module_name] = (
+                            imported_sp.pipe(resolve_scopes).isolate(
+                                symbol_table=imported_sp.symbol_table
+                                )
+                        )
+                    else:
+                        logger.warning(
+                            f"[RESOLVE_SCOPES]: {module_name} не добавлен")
+
+            for alias in import_node.names:
+                final_name = alias.asname if alias.asname else alias.name
+                if isinstance(item.body, ast.Import):
+                    current_scope.symbol_table[final_name] = {
+                        "type": "imported_module",
+                        "original_module": alias.name,
+                        "node_idx": item.meta["idx"]
+                    }
+                else:
+                    module_name = import_node.module
+                    imported_module_sp = (
+                        pipeline.modules_cache.get(module_name)
+                    )
+                    imported_scope = (
+                        getattr(imported_module_sp, "symbol_table", {}) 
+                        if imported_module_sp else {}
+                    )
+                    original_info = imported_scope.get(alias.name, {
+                        "type": "unknown_external"
+                    })
+
+                    current_scope.symbol_table[final_name] = {
+                        "type": "imported_name",
+                        "source_module": module_name,
+                        "original_name": alias.name,  
+                        "node_idx": item.meta["idx"],
+                        "body_pipeline": original_info.get("body_pipeline")
+                    }
+
+            yield item
+            continue
+
+        yield item
+
+def resolve_calls(current_stream, pipeline):
+    """
+    Оператор обработки вызовов ast.Call.
+    Ищет шаблон пайплайна функции, изолирует его и инжектирует в поток.
+    """
+
+    logger = logging.getLogger(f"unbraid.{__name__}.resolve_calls")
+    if not hasattr(pipeline, "call_counters"):
+        pipeline.call_counters = {}
+
+    active_call_idx = None
+    active_call_pipeline = None
+
+    for item in current_stream:
+
+        # тут что-то было про вложенность
+        if active_call_idx is not None:
+            if call_idx not in item.meta.get("preds", []):
+                call_pipeline = active_call_pipeline
+                call_id = call_pipeline.scope_name
+                
+                logger.info(
+                    f"[RESOLVE_CALLS]: exit {active_call_idx}. switch to "
+                    f"{call_id} before {item.meta['idx']}")
+                
+                current_trigger_idx = item.meta["idx"]
+                active_call_idx = None
+                active_call_pipeline = None
+
+                pipeline.switch_to(call_pipeline, key=f"trigger_{call_id}")
+
+        if (
+            isinstance(item.body, ast.Call) and 
+            not item.meta.get("call_injected")
+        ):
+            logger.debug(f"[RESOLVE_CALLS]: {str(item.body):.50}")
+            call_node = item.body
+            call_idx = item.meta["idx"]
+            func_name = (
+                getattr(call_node.func, "id", None) or 
+                getattr(call_node.func, "attr")
+            )
+
+            # нужно доработать алгоритм на случай вызова из массивов и тд
+            # рекурсивный вызов игнорируем
+            if func_name and getattr(pipeline, "scope_name", None) != func_name:
+                # ищем body
+                target_info = None
+                search_scope = pipeline
+                while search_scope is not None:
+                    symbol_table = getattr(search_scope, "symbol_table", {})
+                    if func_name in symbol_table:
+                        target_info = symbol_table[func_name]
+                        break
+                    search_scope = getattr(search_scope, "parent_scope", None)
+
+            if (
+                target_info and "body_pipeline" in target_info and 
+                target_info["body_pipeline"]
+            ):
+                raw_template_pipeline = target_info["body_pipeline"]
+                item.meta["call_injected"] = True
+
+                pipeline.call_counters[func_name] = (
+                    pipeline.call_counters.get(func_name, 0) + 1
+                )
+                call_id = (
+                    f"{func_name}_call_{pipeline.call_counters[func_name]}"
+                )
+                logger.debug(f"[RESOLVE_CALLS]: {call_id=}")
+
+                call_pipeline = raw_template_pipeline.isolate(
+                    scope_name=call_id,
+                    scope_type="call_frame",
+                    passed_arguments=call_node.args,
+                ).pipe(resolve_scopes)
+                call_pipeline.active_scopes={0: call_pipeline}
+
+                if not hasattr(pipeline, "symbol_table"):
+                    pipeline.symbol_table = {}
+                pipeline.symbol_table[call_id] = {
+                    "type": "call_frame",
+                    "node_idx": call_idx,
+                    "body_pipeline": call_pipeline
+                }
+
+                call_frame_idx = f"frame_{item.meta['idx']}_{call_id}"
+                if hasattr(pipeline, "active_scopes"):
+                    pipeline.active_scopes[call_frame_idx] = call_pipeline
+
+        yield item
+

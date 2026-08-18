@@ -8,21 +8,24 @@ from cli import parse_args
 def setup_simple_logger(work_dir):
     """Создает простой логгер для вывода в консоль и файл."""
     logger = logging.getLogger("unbraid")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     logger.handlers.clear()
 
-    fmt = logging.Formatter("[%(levelname)s] %(message)s")
+    fmt = logging.Formatter("%(message)s")
 
     c_handler = logging.StreamHandler()
     c_handler.setFormatter(fmt)
+    c_handler.setLevel(logging.INFO)
     logger.addHandler(c_handler)
 
     f_handler = logging.FileHandler(
         work_dir / "unbraid.log", mode="w", encoding="utf-8")
-    f_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    f_handler.setFormatter(logging.Formatter("%(message)s"))
+    f_handler.setLevel(logging.DEBUG)
     logger.addHandler(f_handler)
-
+    print(f"[INFO] Файл логов сохранен в: {work_dir / 'unbraid.log'}")
     return logger
+
 
 def get_project_context():
     """Автоматически находит целевой файл и собирает контекст проекта."""
@@ -51,10 +54,9 @@ def get_project_context():
     project_root = target_file.parent
     sys.path.insert(0, str(project_root))
 
-    # Создаем изолированную папку кэша по хэшу пути (без привязки к именам)
     tool_root = Path(__file__).resolve().parent
-    path_hash = hashlib.md5(str(target_file).encode()).hexdigest()[:6]
-    output_dir = tool_root / "projects" / f"{target_file.stem}_{path_hash}"
+    folder_name = f"{project_root.name}--{target_file.stem}"
+    output_dir = tool_root / "projects" / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Инициализируем наш сквозной логгер

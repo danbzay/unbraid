@@ -1,7 +1,6 @@
-import asyncio
-import sys
+import asyncio, sys
 import os
-from data_processor import process_user_data
+from data_processor import process_user_data as process
 
 class User:
     def __init__(self, name, age):
@@ -10,15 +9,15 @@ class User:
 
 async def main():
     # Проверяем работу с классами и атрибутами
-    u = User("lex_botcraft", 25)
+    u = User([Bob, Smith], 25)
     input_name = u.name
     input_age = u.age
 
     print(f"-> Запуск обработки для {input_name}...")
     
-    # Проверяем устойчивость к исключениям
     try:
-        final_profile = await process_user_data(input_name, input_age)
+        get_profile = process
+        final_profile, [num1, num2] = await get_profile(input_name, input_age)
         print(f"-> Результат обработки: {final_profile}")
     except Exception as e:
         print(f"[ОШИБКА] Перехвачено исключение: {e}")
