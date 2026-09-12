@@ -259,7 +259,7 @@ class StreamPipeline:
 
     # ВСТРОЕННЫЕ МЕТОДЫ
 
-    def trigger_action(cond_func, action_func, key="trigger", priority=100):
+    def trigger_action(cond_func, action_func, key="trigger", priority=0):
         """
         Создает оператор, который вешает хук-растяжку.
         Как только условие выполняется, запускается action_func.

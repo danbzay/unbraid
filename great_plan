@@ -1,0 +1,29 @@
+list : c[idx] = [] -> = (c[idx] = [], c[idx].append, <- = (c[idx]
+-> : c[idx]
+name : c[idx].append(n)
+def : c[idx] = def
+что кроме списков?
+Operaton(args) : -> = ?, <-
+ast ops : filter
+Call: store args, resolve, return
+List, Tuple, Store : c[idx] = [], 
+Name, Store : c[idx].append(n), st[n] = c[idx]
+Name, Load : c[idx].append(st[n])
+
+Assign : targets = c[idx_t], values = c[idx_v], append_o
+<- if preds[-1] == parent_idx : finalize_operation
+
+resolveOperation(current_stream, pipeline)
+    if Operation:
+        pipeline.stack[op_idx] = []
+        pipeline.trigger_action(
+            lambda x, preds_idx: x.preds[-1] == preds_idx,
+            finalize_operation,
+            key=
+        )
+          
+
+
+
+
+

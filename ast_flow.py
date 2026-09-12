@@ -387,7 +387,55 @@ def get_targets(nodes):
             return [get_targets(elt) for elt in node.elts]
     return [get_targets(node) for node in nodes]
 
-    
+def resolve_operation(current_stream, pipeline)
+    for item in current_stream:
+        node = item.body
+        node_idx = item.meta["idx"]
+        def finalize_operation(item, pipeline):
+            pass
+        if isinstance(node, ast.Operation):
+            pipeline.stack[node_idx] = []
+            pipeline.trigger_action(
+                lambda x, pred_idx: x.preds[-1] == pred_idx,
+                finalize_operation,
+                key=
+            )
+        
+
+
+def resolve_Assign(current_stream, pipeline)
+    for item in current_stream:
+        node = item.body
+        node_idx = item.meta["idx"]
+        def finalize_operation(item, pipeline):
+            # pipeline.targets = pipeline.values
+            pass
+        if isinstance(getattr(node, "ctx"), ast.Store):
+            # тут вопрос про типы
+            pipeline.targets = []
+            pipeline.values = []
+            pipeline.stack[node_idx] = 
+            pipeline.trigger_action(
+                lambda x, pred_idx: x.preds[-1] == pred_idx,
+                finalize_operation,
+                key=
+            )
+        
+def resolve_Store(current_stream, pipeline)
+    for item in current_stream:
+        node = item.body
+        node_idx = item.meta["idx"]
+        def finalize_operation(item, pipeline):
+            pass
+        if isinstance(getattr(node, "ctx"), ast.Store):
+            # тут вопрос про типы
+            pipeline.stack[node_idx] = []
+            pipeline.trigger_action(
+                lambda x, pred_idx: x.preds[-1] == pred_idx,
+                finalize_operation,
+                key=
+            )
+        
 
 def resolve_stores(current_stream, pipeline):
     """
